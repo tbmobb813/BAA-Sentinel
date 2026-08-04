@@ -4,7 +4,6 @@ generator client {
 
 datasource db {
   provider = "postgresql"
-  url      = env("DATABASE_URL")
 }
 
 // ------------------------------------------------------
@@ -12,13 +11,16 @@ datasource db {
 // ------------------------------------------------------
 
 model Organization {
-  id        String   @id // Maps exactly to Clerk's Organization ID
-  name      String
-  createdAt DateTime @default(now())
-  
+  id                   String   @id // Maps exactly to Clerk's Organization ID
+  name                 String
+  plan                 OrgPlan  @default(STARTER)
+  stripeCustomerId     String?  @unique
+  stripeSubscriptionId String?  @unique
+  createdAt            DateTime @default(now())
+
   // An MSP user might belong to multiple organizations
   users     OrganizationUser[]
-  
+
   // All core app data rolls up to the Organization
   vendors   Vendor[]
 }
@@ -53,7 +55,9 @@ model Vendor {
   contactName    String
   contactEmail   String
   status         VendorStatus @default(PENDING)
-  
+  riskScore      Int?         // 0-100, set by AI risk scoring (Growth/MSP tiers)
+  riskRationale  String?
+
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   baaRecords     BaaRecord[]
   requests       VerificationRequest[]
@@ -83,22 +87,36 @@ model BaaRecord {
 // ------------------------------------------------------
 
 model VerificationRequest {
-  id          String        @id @default(uuid())
-  vendorId    String
-  token       String        @unique // Secure, unguessable magic link for the vendor
-  status      RequestStatus @default(SENT)
-  
+  id             String        @id @default(uuid())
+  vendorId       String
+  token          String        @unique // Secure, unguessable magic link for the vendor
+  status         RequestStatus @default(SENT)
+
+  dueDate        DateTime      // when this annual verification is due
+  expiresAt      DateTime      // when the magic link itself stops working
+  reminderCount  Int           @default(0)
+  lastReminderAt DateTime?
+
   sentAt      DateTime      @default(now())
   completedAt DateTime?
-  
+  responseSummary String?
+
   vendor      Vendor        @relation(fields: [vendorId], references: [id], onDelete: Cascade)
-  
+
   @@index([token]) // Fast lookups when vendors click their email link
+  @@index([vendorId])
+  @@index([dueDate])
 }
 
 // ------------------------------------------------------
 // ENUMS
 // ------------------------------------------------------
+
+enum OrgPlan {
+  STARTER
+  GROWTH
+  MSP
+}
 
 enum VendorStatus {
   COMPLIANT

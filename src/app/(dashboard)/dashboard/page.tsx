@@ -5,18 +5,23 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 
 export default async function DashboardPage() {
-  const { organization, vendorLimit } = await getCurrentOrgContext();
-  const { vendors } = await getVendorsForOrg(organization.id);
+  const { organizationId, vendorLimit } = await getCurrentOrgContext();
+  const vendors = await getVendorsForOrg(organizationId);
 
-  const overdue = vendors.filter((v) => v.status === "overdue").length;
-  const pending = vendors.filter((v) => v.status === "pending_verification").length;
-  const verified = vendors.filter((v) => v.status === "verified").length;
+  const compliant = vendors.filter((v) => v.status === "COMPLIANT").length;
+  const pending = vendors.filter((v) => v.status === "PENDING").length;
+  const overdue = vendors.filter(
+    (v) => v.status === "OVERDUE" || v.status === "AT_RISK",
+  ).length;
 
   const stats = [
-    { label: "Total vendors", value: `${vendors.length} / ${vendorLimit === Infinity ? "∞" : vendorLimit}` },
-    { label: "Verified", value: verified },
+    {
+      label: "Total vendors",
+      value: `${vendors.length} / ${vendorLimit === Infinity ? "∞" : vendorLimit}`,
+    },
+    { label: "Compliant", value: compliant },
     { label: "Pending response", value: pending },
-    { label: "Overdue", value: overdue },
+    { label: "Overdue / at risk", value: overdue },
   ];
 
   return (

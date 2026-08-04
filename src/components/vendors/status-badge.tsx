@@ -1,20 +1,21 @@
 import { Badge } from "@/components/ui/badge";
-import type { VendorStatus } from "@/lib/db/types";
+import type { VendorStatus } from "@prisma/client";
 
 const STATUS_LABEL: Record<VendorStatus, string> = {
-  active: "Active",
-  pending_verification: "Pending verification",
-  verified: "Verified",
-  overdue: "Overdue",
-  inactive: "Inactive",
+  COMPLIANT: "Compliant",
+  PENDING: "Pending verification",
+  OVERDUE: "Overdue",
+  AT_RISK: "At risk",
 };
 
-const STATUS_VARIANT: Record<VendorStatus, "default" | "secondary" | "destructive" | "outline"> = {
-  active: "secondary",
-  pending_verification: "outline",
-  verified: "default",
-  overdue: "destructive",
-  inactive: "secondary",
+const STATUS_VARIANT: Record<
+  VendorStatus,
+  "default" | "secondary" | "destructive" | "outline"
+> = {
+  COMPLIANT: "default",
+  PENDING: "outline",
+  OVERDUE: "destructive",
+  AT_RISK: "destructive",
 };
 
 export function VendorStatusBadge({ status }: { status: VendorStatus }) {

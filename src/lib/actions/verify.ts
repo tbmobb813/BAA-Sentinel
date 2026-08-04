@@ -1,6 +1,6 @@
 "use server";
 
-import { createClient } from "@/lib/supabase/server";
+import { prisma } from "@/lib/prisma";
 
 export type VerifyActionState = { error?: string; success?: boolean } | undefined;
 
@@ -15,15 +15,28 @@ export async function submitVerificationResponse(
     return { error: "Please describe your current safeguards before submitting." };
   }
 
-  const supabase = await createClient();
-  const { error } = await supabase.rpc("submit_verification_response", {
-    p_token: token,
-    p_summary: summary,
-  });
+  const request = await prisma.verificationRequest.findUnique({ where: { token } });
 
-  if (error) {
-    return { error: error.message };
+  if (!request) {
+    return { error: "This verification link is invalid." };
   }
+  if (request.expiresAt < new Date()) {
+    return { error: "This verification link has expired." };
+  }
+  if (request.status === "COMPLETED") {
+    return { error: "This verification cycle has already been completed." };
+  }
+
+  await prisma.$transaction([
+    prisma.verificationRequest.update({
+      where: { token },
+      data: { status: "COMPLETED", completedAt: new Date(), responseSummary: summary },
+    }),
+    prisma.vendor.update({
+      where: { id: request.vendorId },
+      data: { status: "COMPLIANT" },
+    }),
+  ]);
 
   return { success: true };
 }

@@ -1,14 +1,13 @@
 import Link from "next/link";
+import { UserButton, OrganizationSwitcher } from "@clerk/nextjs";
 import { getCurrentOrgContext } from "@/lib/data/org";
-import { signOut } from "@/lib/actions/auth";
-import { Button } from "@/components/ui/button";
 
 export default async function DashboardLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
-  const { organization } = await getCurrentOrgContext();
+  await getCurrentOrgContext();
 
   return (
     <div className="flex min-h-screen flex-col">
@@ -27,12 +26,8 @@ export default async function DashboardLayout({
           </nav>
         </div>
         <div className="flex items-center gap-4">
-          <span className="text-sm text-muted-foreground">{organization.name}</span>
-          <form action={signOut}>
-            <Button variant="outline" size="sm" type="submit">
-              Log out
-            </Button>
-          </form>
+          <OrganizationSwitcher afterSelectOrganizationUrl="/dashboard" />
+          <UserButton />
         </div>
       </header>
       <main className="flex-1 px-6 py-8">{children}</main>

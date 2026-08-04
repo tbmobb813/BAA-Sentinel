@@ -1,18 +1,31 @@
-import { createClient } from "@/lib/supabase/server";
+import { prisma } from "@/lib/prisma";
 import { VerifyResponseForm } from "@/components/vendors/verify-response-form";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 
 export default async function VerifyPage({
   params,
 }: PageProps<"/verify/[token]">) {
   const { token } = await params;
-  const supabase = await createClient();
 
-  const { data, error } = await supabase
-    .rpc("get_verification_request", { p_token: token })
-    .maybeSingle();
+  const request = await prisma.verificationRequest.findUnique({
+    where: { token },
+    include: { vendor: true },
+  });
 
-  const request = error ? null : data;
+  if (request && request.status === "SENT") {
+    await prisma.verificationRequest.update({
+      where: { token },
+      data: { status: "OPENED" },
+    });
+  }
+
+  const expired = request ? request.expiresAt < new Date() : false;
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-muted/40 px-4">
@@ -21,8 +34,8 @@ export default async function VerifyPage({
           <CardTitle>Annual BAA verification</CardTitle>
           {request ? (
             <CardDescription>
-              Requested by {request.vendor_name}&rsquo;s covered entity · due{" "}
-              {request.due_date}
+              Requested by {request.vendor.name}&rsquo;s covered entity · due{" "}
+              {request.dueDate.toLocaleDateString()}
             </CardDescription>
           ) : null}
         </CardHeader>
@@ -31,12 +44,12 @@ export default async function VerifyPage({
             <p className="text-sm text-destructive">
               This verification link is invalid.
             </p>
-          ) : request.expired ? (
+          ) : expired ? (
             <p className="text-sm text-destructive">
               This verification link has expired. Please contact the practice
               directly for a new one.
             </p>
-          ) : request.status === "verified" || request.status === "responded" ? (
+          ) : request.status === "COMPLETED" ? (
             <p className="text-sm text-muted-foreground">
               This verification cycle has already been completed. Thank you.
             </p>
