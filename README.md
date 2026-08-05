@@ -151,6 +151,20 @@ Growth/MSP plans (`Organization.plan !== "STARTER"`):
 - **Manually** via the "Run risk scoring" button on a vendor's detail page,
   which re-scores off that vendor's most recent completed response.
 
+### Audit export
+
+"Export CSV" / "Export PDF" on `/vendors` hit `/api/export/csv` and
+`/api/export/pdf` (plain GET route handlers, no setup required beyond what's
+already configured). They intentionally export different granularity:
+
+- **CSV** — one row per verification cycle (not per vendor), so the full
+  multi-year history is there for an auditor to dig into. A vendor with no
+  cycles yet still gets a row rather than silently disappearing.
+- **PDF** (`src/components/export/audit-report-pdf.tsx`, via
+  `@react-pdf/renderer`'s `renderToBuffer` — pure JS, no headless browser)
+  — a presentable one-vendor-per-row summary with status counts up top,
+  meant to be handed to someone directly rather than analyzed.
+
 ## What's built vs. what's next
 
 **Built:** Clerk auth + organizations with `proxy.ts` route protection,
@@ -159,12 +173,12 @@ plan-based vendor-count limits, the annual verification cycle (send a
 magic-link request, vendor responds on an unauthenticated
 `/verify/[token]` form, which marks the vendor compliant), Stripe
 Checkout + Customer Portal for the three subscription tiers (`/billing`),
-the scheduled reminder cascade on Trigger.dev, and AI risk scoring
-(Growth/MSP tiers) on vendor verification responses.
+the scheduled reminder cascade on Trigger.dev, AI risk scoring
+(Growth/MSP tiers) on vendor verification responses, and CSV/PDF audit
+export.
 
 **Not yet wired** (installed, scaffolded in `.env.example`, no UI/logic
 yet):
 
-- Audit-ready PDF/CSV export
 - Vendor document upload (Supabase Storage, or any object storage —
   `BaaRecord.fileUrl` already exists to point at it; no upload UI yet)

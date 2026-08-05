@@ -19,6 +19,19 @@ export async function getVendorsForOrg(organizationId: string) {
   });
 }
 
+// Full verification history per vendor, for audit exports -- unlike
+// getVendorsForOrg's latest-cycle-only include, an auditor needs to see
+// the annual pattern across years, not just where things stand today.
+export async function getVendorsForExport(organizationId: string) {
+  return prisma.vendor.findMany({
+    where: { organizationId },
+    orderBy: { name: "asc" },
+    include: {
+      requests: { orderBy: { sentAt: "desc" } },
+    },
+  });
+}
+
 export async function getVendorDetail(vendorId: string, organizationId: string) {
   const vendor = await prisma.vendor.findFirst({
     where: { id: vendorId, organizationId },
