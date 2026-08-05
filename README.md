@@ -74,17 +74,24 @@ Supabase Auth+RLS to Clerk+Prisma.
 
 ## Getting started
 
-1. Create a Postgres database (Supabase, Neon, Railway, or local Postgres
-   all work — Prisma just needs a connection string).
+1. Get a Postgres database:
+   - **Local (fastest for dev):** `docker compose up -d` — starts Postgres
+     on `localhost:5432` matching the default `DATABASE_URL` in
+     `.env.example` exactly, so no config needed if you use this.
+   - **Hosted:** Supabase, Neon, and Railway all work — Prisma just needs
+     a connection string.
 2. Create a Clerk application and enable **Organizations** in its
    dashboard.
-3. Copy `.env.example` to `.env.local` and fill in `DATABASE_URL`,
-   `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY`, and `CLERK_SECRET_KEY` at minimum.
+3. Copy `.env.example` to `.env.local` and fill in `DATABASE_URL` (skip if
+   using `docker compose up -d`, the default already matches),
+   `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY`, and `CLERK_SECRET_KEY`.
 4. `npm install` (runs `prisma generate` via `postinstall`)
 5. Create the schema in your database: `npx prisma migrate dev --name init`
    (no migrations have been generated yet in this repo — there's no live
    database to generate them against — so this first run creates
-   `prisma/migrations/`).
+   `prisma/migrations/`). This is also the step that will fail with
+   `Can't reach database server` if Postgres isn't actually running yet —
+   go back to step 1 if you hit that.
 6. `npm run dev` — open [http://localhost:3000](http://localhost:3000)
 
 Sign up, create an organization when prompted (`/onboarding`), then add
