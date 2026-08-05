@@ -1,6 +1,7 @@
 "use server";
 
 import { prisma } from "@/lib/prisma";
+import { scoreVendorRisk } from "@/lib/ai/risk-scoring";
 
 export type VerifyActionState = { error?: string; success?: boolean } | undefined;
 
@@ -15,7 +16,10 @@ export async function submitVerificationResponse(
     return { error: "Please describe your current safeguards before submitting." };
   }
 
-  const request = await prisma.verificationRequest.findUnique({ where: { token } });
+  const request = await prisma.verificationRequest.findUnique({
+    where: { token },
+    include: { vendor: { include: { organization: true } } },
+  });
 
   if (!request) {
     return { error: "This verification link is invalid." };
@@ -37,6 +41,26 @@ export async function submitVerificationResponse(
       data: { status: "COMPLIANT" },
     }),
   ]);
+
+  // AI risk scoring is a Growth/MSP-tier feature and best-effort: a Claude
+  // API hiccup shouldn't fail the vendor's submission, which already
+  // succeeded above.
+  if (request.vendor.organization.plan !== "STARTER") {
+    try {
+      const assessment = await scoreVendorRisk({
+        vendorName: request.vendor.name,
+        responseSummary: summary,
+      });
+      if (assessment) {
+        await prisma.vendor.update({
+          where: { id: request.vendorId },
+          data: { riskScore: assessment.score, riskRationale: assessment.rationale },
+        });
+      }
+    } catch (error) {
+      console.error("Risk scoring failed", error);
+    }
+  }
 
   return { success: true };
 }

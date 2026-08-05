@@ -22,8 +22,9 @@ audit-ready record.
 - **Resend** — transactional email for verification requests/reminders
 - **Stripe** — subscription billing (Checkout + Customer Portal wired for
   the three tiers)
-- **Anthropic (Claude API)** — AI risk scoring on paid tiers (installed, not
-  yet wired)
+- **Anthropic (Claude API)** — AI risk scoring on Growth/MSP tiers, via
+  `messages.parse()` + `zodOutputFormat()` for structured `{score, rationale}`
+  output (Haiku 4.5)
 
 ## Data model
 
@@ -136,6 +137,20 @@ passes.
    dashboard instead of waiting for the daily cron to fire.
 5. `npx trigger.dev deploy` when ready for the schedule to run for real.
 
+### AI risk scoring setup
+
+Set `ANTHROPIC_API_KEY` from the [Anthropic Console](https://console.anthropic.com).
+Without it, scoring silently no-ops (`scoreVendorRisk` returns `null`) rather
+than failing whatever triggered it. Scoring runs two ways, both gated to
+Growth/MSP plans (`Organization.plan !== "STARTER"`):
+
+- **Automatically** at the end of `submitVerificationResponse`, right after
+  a vendor's `/verify/[token]` submission marks them compliant. Best-effort —
+  a Claude API failure is logged, not surfaced to the vendor, since their
+  submission already succeeded.
+- **Manually** via the "Run risk scoring" button on a vendor's detail page,
+  which re-scores off that vendor's most recent completed response.
+
 ## What's built vs. what's next
 
 **Built:** Clerk auth + organizations with `proxy.ts` route protection,
@@ -144,12 +159,12 @@ plan-based vendor-count limits, the annual verification cycle (send a
 magic-link request, vendor responds on an unauthenticated
 `/verify/[token]` form, which marks the vendor compliant), Stripe
 Checkout + Customer Portal for the three subscription tiers (`/billing`),
-and the scheduled reminder cascade on Trigger.dev.
+the scheduled reminder cascade on Trigger.dev, and AI risk scoring
+(Growth/MSP tiers) on vendor verification responses.
 
 **Not yet wired** (installed, scaffolded in `.env.example`, no UI/logic
 yet):
 
-- AI risk scoring (Claude API) on uploaded vendor documentation
 - Audit-ready PDF/CSV export
 - Vendor document upload (Supabase Storage, or any object storage —
   `BaaRecord.fileUrl` already exists to point at it; no upload UI yet)
