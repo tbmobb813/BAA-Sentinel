@@ -71,7 +71,8 @@ model Vendor {
 model BaaRecord {
   id             String    @id @default(uuid())
   vendorId       String
-  fileUrl        String?   // Pointer to the Supabase Storage bucket path
+  fileUrl        String?   // Vercel Blob URL
+  label          String    @default("Untitled document")
   signedDate     DateTime?
   expirationDate DateTime? // Used to trigger next year's automated emails
   isVerified     Boolean   @default(false)

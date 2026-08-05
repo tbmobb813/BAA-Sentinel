@@ -25,14 +25,21 @@ audit-ready record.
 - **Anthropic (Claude API)** — AI risk scoring on Growth/MSP tiers, via
   `messages.parse()` + `zodOutputFormat()` for structured `{score, rationale}`
   output (Haiku 4.5)
+- **Trigger.dev** — primary reminder-cascade scheduler, with **Vercel Cron**
+  wired as a backup trigger for the same job (see "Reminder cascade setup"
+  below) — chosen after `npm audit` turned up unresolved vulnerabilities
+  confined to Trigger.dev's own dependency tree
+- **Vercel Blob** — vendor document upload, via direct browser-to-Blob
+  uploads (`@vercel/blob/client`'s `upload()`), no new account beyond the
+  Vercel account already required for hosting
 
 ## Data model
 
 Schema lives in `prisma/schema.prisma` (originally committed as
 `client.sql` — same content, relocated to the conventional Prisma path,
 plus a few additive fields: `Organization.plan`/Stripe IDs,
-`Vendor.riskScore`/`riskRationale`, and due-date/reminder tracking on
-`VerificationRequest`).
+`Vendor.riskScore`/`riskRationale`, due-date/reminder tracking on
+`VerificationRequest`, and `BaaRecord.label`).
 
 ```
 Organization (mirrors a Clerk Organization; id = Clerk org ID)
@@ -137,6 +144,52 @@ passes.
    dashboard instead of waiting for the daily cron to fire.
 5. `npx trigger.dev deploy` when ready for the schedule to run for real.
 
+**Backup trigger (Vercel Cron):** `src/app/api/cron/reminders/route.ts`
+runs the exact same `processVerificationReminders` logic (shared with the
+Trigger.dev task via `src/lib/reminders/process-verification-reminders.ts`)
+on a schedule defined in `vercel.json`, deliberately set a few hours after
+Trigger.dev's run so it acts as a "catch what didn't fire" pass rather than
+a simultaneous duplicate. This exists because `npm audit` turned up
+unresolved high/critical vulnerabilities confined to Trigger.dev's own
+dependency tree with no fix available yet (see git history) — this backup
+means a Trigger.dev outage or an eventual decision to drop it doesn't leave
+the reminder cascade with no path at all. Only relevant once deployed to
+Vercel: set `CRON_SECRET` to any random 16+ character string as an
+environment variable in the Vercel project (Vercel then sends it back
+automatically as `Authorization: Bearer $CRON_SECRET` on every cron
+invocation, which the route verifies). There's nothing to configure for
+local dev — Vercel Cron doesn't run against `next dev`.
+
+### Vendor document upload setup
+
+Uploads go straight from the browser to Vercel Blob
+(`@vercel/blob/client`'s `upload()`, authorized by
+`src/app/api/blob/upload/route.ts`), then the client calls the
+`createBaaRecord` Server Action directly once the upload resolves — no
+dependency on Vercel's `onUploadCompleted` webhook callback, which (like
+the Clerk webhook) needs a publicly reachable URL that most dev
+environments don't have.
+
+1. In the Vercel dashboard, connect a Blob store to the project (**Storage**
+   tab -> **Create Database** -> **Blob**). This auto-populates
+   `BLOB_READ_WRITE_TOKEN` for deployed environments; copy the same value
+   into `.env.local` for local dev.
+2. That's it — no other setup. Uploads are capped at 20MB and restricted to
+   PDF/PNG/JPEG in `src/app/api/blob/upload/route.ts`'s
+   `allowedContentTypes`.
+
+**Security note:** blobs are uploaded with `access: "public"` — the file is
+reachable by anyone with its exact URL, which Vercel Blob generates with a
+random, unguessable suffix. This is the same trust model already used for
+`/verify/[token]`'s magic links elsewhere in this app: the confidentiality
+boundary that matters (who ever *sees* the link) is enforced by
+`getVendorDetail`'s `organizationId` scoping, not by Vercel Blob itself.
+Vercel Blob does support fully access-controlled private blobs via a
+signed-URL flow (`presignUrl`), which this app doesn't use — consciously
+traded off for consistency with the app's existing token-based pattern and
+to avoid a second, more complex upload flow for what's currently a small
+feature.
+
 ### AI risk scoring setup
 
 Set `ANTHROPIC_API_KEY` from the [Anthropic Console](https://console.anthropic.com).
@@ -173,13 +226,11 @@ plan-based vendor-count limits, the annual verification cycle (send a
 magic-link request, vendor responds on an unauthenticated
 `/verify/[token]` form, which marks the vendor compliant), Stripe
 Checkout + Customer Portal for the three subscription tiers (`/billing`),
-the scheduled reminder cascade on Trigger.dev, AI risk scoring
-(Growth/MSP tiers) on vendor verification responses, and CSV/PDF audit
-export.
+the reminder cascade on Trigger.dev with a Vercel Cron backup, AI risk
+scoring (Growth/MSP tiers) on vendor verification responses, CSV/PDF audit
+export, and vendor document upload via Vercel Blob.
 
-**Not yet wired:**
-
-- Vendor document upload. No storage package or storage-related env vars
-  exist in this repo yet — that all still needs to be chosen and added, not
-  just wired up. `BaaRecord.fileUrl` (a plain `String?`) already exists in
-  the schema as the field it would eventually point at.
+**Not yet wired:** nothing outstanding from the original feature list.
+Worth keeping an eye on: `npm audit`'s unresolved high/critical findings in
+Trigger.dev's dependency tree (the Vercel Cron backup exists partly because
+of this), and this project has no automated test suite yet.

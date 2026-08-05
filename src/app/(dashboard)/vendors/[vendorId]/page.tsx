@@ -6,6 +6,7 @@ import {
   StartVerificationButton,
   RescoreButton,
 } from "@/components/vendors/verification-actions";
+import { DocumentUploadForm } from "@/components/vendors/document-upload-form";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 
@@ -99,6 +100,47 @@ export default async function VendorDetailPage({
                 </div>
               </div>
             ))
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Documents</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <DocumentUploadForm vendorId={vendor.id} />
+          {vendor.baaRecords.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No documents uploaded yet.</p>
+          ) : (
+            <div className="space-y-2">
+              {vendor.baaRecords.map((record) => (
+                <div
+                  key={record.id}
+                  className="flex items-center justify-between rounded-md border p-3 text-sm"
+                >
+                  <div>
+                    <p className="font-medium">{record.label}</p>
+                    <p className="text-muted-foreground">
+                      {record.signedDate
+                        ? `Signed ${record.signedDate.toLocaleDateString()} · `
+                        : ""}
+                      Uploaded {record.createdAt.toLocaleDateString()}
+                    </p>
+                  </div>
+                  {record.fileUrl ? (
+                    <a
+                      href={record.fileUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-primary underline underline-offset-4"
+                    >
+                      Download
+                    </a>
+                  ) : null}
+                </div>
+              ))}
+            </div>
           )}
         </CardContent>
       </Card>
