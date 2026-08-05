@@ -3,13 +3,7 @@ import "server-only";
 import { redirect } from "next/navigation";
 import { auth, clerkClient, currentUser } from "@clerk/nextjs/server";
 import { prisma } from "@/lib/prisma";
-import type { OrgPlan } from "@prisma/client";
-
-const VENDOR_LIMITS: Record<OrgPlan, number> = {
-  STARTER: 15,
-  GROWTH: 50,
-  MSP: Infinity,
-};
+import { VENDOR_LIMITS } from "@/lib/billing/plans";
 
 // Clerk webhooks (organization.created, organizationMembership.created,
 // etc. -- see src/app/api/webhooks/clerk/route.ts) are the source of truth

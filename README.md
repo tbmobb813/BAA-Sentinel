@@ -20,7 +20,8 @@ audit-ready record.
 - **Tailwind CSS + shadcn/ui** (Base UI primitives — note the `render` prop
   for composition, not Radix's `asChild`)
 - **Resend** — transactional email for verification requests/reminders
-- **Stripe** — subscription billing (installed, not yet wired to checkout)
+- **Stripe** — subscription billing (Checkout + Customer Portal wired for
+  the three tiers)
 - **Anthropic (Claude API)** — AI risk scoring on paid tiers (installed, not
   yet wired)
 
@@ -97,18 +98,34 @@ Supabase Auth+RLS to Clerk+Prisma.
 Sign up, create an organization when prompted (`/onboarding`), then add
 vendors and start verification cycles from `/vendors`.
 
+### Stripe billing setup
+
+1. In the Stripe dashboard (test mode), create three recurring Products/Prices
+   matching the tiers in `src/lib/billing/plans.ts` ($29/$59/$99 per month),
+   and set their price IDs as `NEXT_PUBLIC_STRIPE_STARTER_PRICE_ID`,
+   `NEXT_PUBLIC_STRIPE_GROWTH_PRICE_ID`, `NEXT_PUBLIC_STRIPE_MSP_PRICE_ID`.
+2. Set `STRIPE_SECRET_KEY` from the dashboard's API keys page. Checkout is
+   disabled on `/billing` (buttons render but are inert) until this is set.
+3. For webhooks locally, use the Stripe CLI: `stripe listen --forward-to
+   localhost:3000/api/webhooks/stripe` — it prints a signing secret, which
+   is your `STRIPE_WEBHOOK_SECRET`. In production, register the same
+   endpoint URL in the dashboard instead and use the secret it generates
+   there. Without this, `Organization.plan` never updates after checkout
+   completes — the checkout session itself will still succeed, but the
+   app won't know about it.
+
 ## What's built vs. what's next
 
 **Built:** Clerk auth + organizations with `proxy.ts` route protection,
 Clerk-to-Postgres sync (webhook + lazy-sync fallback), vendor CRUD with
-plan-based vendor-count limits, and the annual verification cycle (send a
+plan-based vendor-count limits, the annual verification cycle (send a
 magic-link request, vendor responds on an unauthenticated
-`/verify/[token]` form, which marks the vendor compliant).
+`/verify/[token]` form, which marks the vendor compliant), and Stripe
+Checkout + Customer Portal for the three subscription tiers (`/billing`).
 
 **Not yet wired** (installed, scaffolded in `.env.example`, no UI/logic
 yet):
 
-- Stripe Checkout + Customer Portal for the three subscription tiers
 - Scheduled reminder cascade (60/30/7-day escalation) — needs Inngest or
   Trigger.dev; `VerificationRequest.reminderCount`/`lastReminderAt`
   already exist to support it

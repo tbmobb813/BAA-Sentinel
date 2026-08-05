@@ -1,0 +1,83 @@
+import type { NextRequest } from "next/server";
+import { stripe } from "@/lib/stripe";
+import { prisma } from "@/lib/prisma";
+import { PRICE_TO_PLAN } from "@/lib/billing/plans";
+
+// Keeps Organization.plan/stripeCustomerId/stripeSubscriptionId in sync
+// with Stripe. Requires STRIPE_WEBHOOK_SECRET and a publicly reachable URL
+// (or `stripe listen --forward-to` for local dev) registered with Stripe --
+// see README for setup.
+export async function POST(request: NextRequest) {
+  if (!stripe || !process.env.STRIPE_WEBHOOK_SECRET) {
+    return new Response("Stripe is not configured", { status: 400 });
+  }
+
+  const body = await request.text();
+  const signature = request.headers.get("stripe-signature");
+
+  let event;
+  try {
+    event = stripe.webhooks.constructEvent(
+      body,
+      signature ?? "",
+      process.env.STRIPE_WEBHOOK_SECRET,
+    );
+  } catch {
+    return new Response("Invalid webhook signature", { status: 400 });
+  }
+
+  switch (event.type) {
+    case "checkout.session.completed": {
+      const session = event.data.object;
+      const organizationId = session.client_reference_id;
+
+      if (organizationId && session.customer && session.subscription) {
+        const subscription = await stripe.subscriptions.retrieve(
+          session.subscription as string,
+        );
+        const priceId = subscription.items.data[0]?.price.id;
+        const plan = priceId ? PRICE_TO_PLAN[priceId] : undefined;
+
+        await prisma.organization.update({
+          where: { id: organizationId },
+          data: {
+            stripeCustomerId: session.customer as string,
+            stripeSubscriptionId: subscription.id,
+            ...(plan ? { plan } : {}),
+          },
+        });
+      }
+      break;
+    }
+    case "customer.subscription.updated": {
+      const subscription = event.data.object;
+      const organizationId = subscription.metadata.organizationId;
+      const priceId = subscription.items.data[0]?.price.id;
+      const plan = priceId ? PRICE_TO_PLAN[priceId] : undefined;
+
+      if (organizationId && plan) {
+        await prisma.organization.update({
+          where: { id: organizationId },
+          data: { plan, stripeSubscriptionId: subscription.id },
+        });
+      }
+      break;
+    }
+    case "customer.subscription.deleted": {
+      const subscription = event.data.object;
+      const organizationId = subscription.metadata.organizationId;
+
+      if (organizationId) {
+        // No "canceled" plan tier exists -- revert to the entry-level paid
+        // tier's vendor limit rather than inventing a suspended state.
+        await prisma.organization.update({
+          where: { id: organizationId },
+          data: { plan: "STARTER", stripeSubscriptionId: null },
+        });
+      }
+      break;
+    }
+  }
+
+  return new Response("OK", { status: 200 });
+}

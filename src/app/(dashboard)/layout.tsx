@@ -23,6 +23,9 @@ export default async function DashboardLayout({
             <Link href="/vendors" className="hover:text-foreground">
               Vendors
             </Link>
+            <Link href="/billing" className="hover:text-foreground">
+              Billing
+            </Link>
           </nav>
         </div>
         <div className="flex items-center gap-4">
