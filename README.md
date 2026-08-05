@@ -114,21 +114,41 @@ vendors and start verification cycles from `/vendors`.
    completes — the checkout session itself will still succeed, but the
    app won't know about it.
 
+### Reminder cascade setup (Trigger.dev)
+
+The scheduled task lives in `src/trigger/reminders.ts` — it runs daily,
+nudges vendors at 60/30/7 days before their verification is due (reusing
+the same Resend email path, so it also no-ops to a console log without
+`RESEND_API_KEY`), and flips a vendor to `OVERDUE` once its due date
+passes.
+
+1. Create a free account at [trigger.dev](https://trigger.dev) and a new
+   project; copy its project ref into `TRIGGER_PROJECT_REF` (or hardcode it
+   directly in `trigger.config.ts`'s `project` field — it's not a secret).
+2. Set `TRIGGER_SECRET_KEY` from the project's dashboard.
+3. **This task runs on Trigger.dev's infrastructure, not Vercel** — it
+   needs its own copy of `DATABASE_URL`, `RESEND_API_KEY`, and
+   `NEXT_PUBLIC_APP_URL` configured in the Trigger.dev dashboard's
+   environment variables (or synced via the CLI), separately from
+   whatever you set in `.env.local`/Vercel.
+4. `npx trigger.dev dev` — runs the task locally against your dev
+   environment and lets you invoke it on demand from the Trigger.dev
+   dashboard instead of waiting for the daily cron to fire.
+5. `npx trigger.dev deploy` when ready for the schedule to run for real.
+
 ## What's built vs. what's next
 
 **Built:** Clerk auth + organizations with `proxy.ts` route protection,
 Clerk-to-Postgres sync (webhook + lazy-sync fallback), vendor CRUD with
 plan-based vendor-count limits, the annual verification cycle (send a
 magic-link request, vendor responds on an unauthenticated
-`/verify/[token]` form, which marks the vendor compliant), and Stripe
-Checkout + Customer Portal for the three subscription tiers (`/billing`).
+`/verify/[token]` form, which marks the vendor compliant), Stripe
+Checkout + Customer Portal for the three subscription tiers (`/billing`),
+and the scheduled reminder cascade on Trigger.dev.
 
 **Not yet wired** (installed, scaffolded in `.env.example`, no UI/logic
 yet):
 
-- Scheduled reminder cascade (60/30/7-day escalation) — needs Inngest or
-  Trigger.dev; `VerificationRequest.reminderCount`/`lastReminderAt`
-  already exist to support it
 - AI risk scoring (Claude API) on uploaded vendor documentation
 - Audit-ready PDF/CSV export
 - Vendor document upload (Supabase Storage, or any object storage —
