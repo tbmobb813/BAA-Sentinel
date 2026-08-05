@@ -177,8 +177,9 @@ the scheduled reminder cascade on Trigger.dev, AI risk scoring
 (Growth/MSP tiers) on vendor verification responses, and CSV/PDF audit
 export.
 
-**Not yet wired** (installed, scaffolded in `.env.example`, no UI/logic
-yet):
+**Not yet wired:**
 
-- Vendor document upload (Supabase Storage, or any object storage —
-  `BaaRecord.fileUrl` already exists to point at it; no upload UI yet)
+- Vendor document upload. No storage package or storage-related env vars
+  exist in this repo yet — that all still needs to be chosen and added, not
+  just wired up. `BaaRecord.fileUrl` (a plain `String?`) already exists in
+  the schema as the field it would eventually point at.
