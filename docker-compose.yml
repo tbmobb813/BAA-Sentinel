@@ -1,0 +1,15 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: baa_sentinel
+    ports:
+      - "5432:5432"
+    volumes:
+      - baa_sentinel_postgres:/var/lib/postgresql/data
+
+volumes:
+  baa_sentinel_postgres:
