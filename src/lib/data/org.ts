@@ -9,47 +9,46 @@ import { VENDOR_LIMITS } from "@/lib/billing/plans";
 // etc. -- see src/app/api/webhooks/clerk/route.ts) are the source of truth
 // for keeping Postgres in sync with Clerk in production. They require a
 // publicly reachable URL registered in the Clerk dashboard, which most dev
-// environments don't have, so this lazily creates the local mirror rows on
-// first access as a bootstrap fallback. Once an org row exists, this trusts
-// it (and the membership role on it) rather than re-syncing on every call --
-// a role change made in Clerk without a working webhook will only show up
-// here after the org's local row is deleted, which is an accepted MVP
-// tradeoff, not a bug.
+// environments don't have, so this eagerly upserts the local mirror rows
+// (user, organization, membership role) on every call as a bootstrap
+// fallback -- this is what keeps name/role changes made in Clerk visible
+// here without a working webhook. The tradeoff is an extra Clerk API call
+// and three upserts on every request that touches org context; if that
+// becomes a hot path, consider caching or falling back to lazy sync once
+// webhooks can be relied on.
 export async function getCurrentOrgContext() {
   const { userId, orgId, orgRole } = await auth();
 
   if (!userId) redirect("/sign-in");
   if (!orgId) redirect("/onboarding");
 
-  let organization = await prisma.organization.findUnique({ where: { id: orgId } });
+  const user = await currentUser();
+  await prisma.user.upsert({
+    where: { id: userId },
+    create: {
+      id: userId,
+      email: user?.emailAddresses[0]?.emailAddress ?? "",
+      name: user?.fullName,
+    },
+    update: {},
+  });
 
-  if (!organization) {
-    const user = await currentUser();
-    await prisma.user.upsert({
-      where: { id: userId },
-      create: {
-        id: userId,
-        email: user?.emailAddresses[0]?.emailAddress ?? "",
-        name: user?.fullName,
-      },
-      update: {},
-    });
+  const client = await clerkClient();
+  const clerkOrg = await client.organizations.getOrganization({
+    organizationId: orgId,
+  });
 
-    const client = await clerkClient();
-    const clerkOrg = await client.organizations.getOrganization({
-      organizationId: orgId,
-    });
+  const organization = await prisma.organization.upsert({
+    where: { id: orgId },
+    create: { id: orgId, name: clerkOrg.name },
+    update: { name: clerkOrg.name },
+  });
 
-    organization = await prisma.organization.create({
-      data: { id: orgId, name: clerkOrg.name },
-    });
-
-    await prisma.organizationUser.upsert({
-      where: { userId_organizationId: { userId, organizationId: orgId } },
-      create: { userId, organizationId: orgId, role: orgRole ?? "org:member" },
-      update: { role: orgRole ?? "org:member" },
-    });
-  }
+  await prisma.organizationUser.upsert({
+    where: { userId_organizationId: { userId, organizationId: orgId } },
+    create: { userId, organizationId: orgId, role: orgRole ?? "org:member" },
+    update: { role: orgRole ?? "org:member" },
+  });
 
   return {
     userId,
