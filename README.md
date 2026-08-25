@@ -241,9 +241,13 @@ Checkout + Customer Portal for the three subscription tiers (`/billing`),
 the reminder cascade on Vercel Cron, AI risk scoring (Growth/MSP tiers) on
 vendor verification responses, CSV/PDF audit export, vendor document
 upload via Vercel Blob, rate limiting on the public verify flow, Sentry
-error monitoring, and a Vitest unit-test suite.
+error monitoring, a Vitest unit-test suite, and CI
+(`.github/workflows/ci.yml` — lint, typecheck, test, a migration-deploy
+check against a real Postgres service container, and build, on every
+push/PR to `main`).
 
 **Not yet wired:** nothing outstanding from the original feature list.
-Worth keeping an eye on: no CI workflow runs the test suite/build/lint
-automatically yet, and no integration or E2E tests exist (see "Testing"
-above).
+Worth keeping an eye on: no integration or E2E tests exist yet (see
+"Testing" above), and branch protection requiring the CI check to pass
+before merge isn't enabled -- that's a one-click GitHub repo setting, not
+something the workflow file itself controls.

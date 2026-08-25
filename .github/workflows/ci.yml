@@ -1,0 +1,61 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+
+    services:
+      # Matches docker-compose.yml's credentials exactly, so the migration
+      # check below behaves the same as local dev.
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: user
+          POSTGRES_PASSWORD: password
+          POSTGRES_DB: baa_sentinel
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      # Runs the postinstall (prisma generate) too. No env vars needed --
+      # prisma.config.ts already falls back to a placeholder DATABASE_URL
+      # when unset, specifically so a fresh clone with no .env doesn't fail
+      # here, and every external client (Stripe/Resend/Anthropic/Sentry) is
+      # null-guarded on a missing API key.
+      - run: npm ci
+
+      - run: npm run lint
+
+      - run: npx tsc --noEmit
+
+      - run: npm test
+
+      # Applies every committed migration against a real, empty Postgres --
+      # this is the automated version of a drift check that would have
+      # caught a migration that didn't match schema.prisma before it sat
+      # unnoticed in the repo (see git history: the BaaRecord.label fix).
+      - run: npx prisma migrate deploy
+        env:
+          DATABASE_URL: postgresql://user:password@localhost:5432/baa_sentinel
+
+      - run: npm run build
+        env:
+          DATABASE_URL: postgresql://user:password@localhost:5432/baa_sentinel
