@@ -1,5 +1,6 @@
 "use server";
 
+import { after } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { scoreVendorRisk } from "@/lib/ai/risk-scoring";
 
@@ -42,24 +43,32 @@ export async function submitVerificationResponse(
     }),
   ]);
 
-  // AI risk scoring is a Growth/MSP-tier feature and best-effort: a Claude
-  // API hiccup shouldn't fail the vendor's submission, which already
-  // succeeded above.
+  // AI risk scoring is a Growth/MSP-tier feature and best-effort, scheduled
+  // via after() rather than awaited here: this action is invoked by an
+  // external, unauthenticated vendor filling out /verify/[token], and their
+  // form submission shouldn't block on a Claude API round trip for a
+  // feature that exists entirely for the covered entity's benefit. after()
+  // runs this once the response has already been sent back to the vendor,
+  // while still keeping the function alive until it resolves -- unlike a
+  // bare un-awaited promise, which a serverless platform is free to kill
+  // the moment the response returns.
   if (request.vendor.organization.plan !== "STARTER") {
-    try {
-      const assessment = await scoreVendorRisk({
-        vendorName: request.vendor.name,
-        responseSummary: summary,
-      });
-      if (assessment) {
-        await prisma.vendor.update({
-          where: { id: request.vendorId },
-          data: { riskScore: assessment.score, riskRationale: assessment.rationale },
+    after(async () => {
+      try {
+        const assessment = await scoreVendorRisk({
+          vendorName: request.vendor.name,
+          responseSummary: summary,
         });
+        if (assessment) {
+          await prisma.vendor.update({
+            where: { id: request.vendorId },
+            data: { riskScore: assessment.score, riskRationale: assessment.rationale },
+          });
+        }
+      } catch (error) {
+        console.error("Risk scoring failed", error);
       }
-    } catch (error) {
-      console.error("Risk scoring failed", error);
-    }
+    });
   }
 
   return { success: true };
