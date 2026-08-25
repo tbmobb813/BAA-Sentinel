@@ -133,4 +133,24 @@ describe("processVerificationReminders", () => {
 
     expect(log).toHaveBeenCalledWith(expect.stringContaining("Pruned 3"));
   });
+
+  it("prunes rate-limit rows older than 24 hours, not some other cutoff", async () => {
+    // The previous test only checked that the mocked return value gets
+    // logged -- it never asserted the actual cutoff passed to Prisma, so a
+    // bug like the boundary being computed as `now + 24h` instead of
+    // `now - 24h` (which would prune nothing, ever) would slip through
+    // undetected. This asserts the real where-clause math.
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-01-02T00:00:00.000Z"));
+    prismaMock.rateLimitHit.deleteMany.mockResolvedValue({ count: 0 });
+    prismaMock.verificationRequest.findMany.mockResolvedValue([]);
+
+    await processVerificationReminders();
+
+    expect(prismaMock.rateLimitHit.deleteMany).toHaveBeenCalledWith({
+      where: { windowStart: { lt: new Date("2026-01-01T00:00:00.000Z") } },
+    });
+
+    vi.useRealTimers();
+  });
 });
