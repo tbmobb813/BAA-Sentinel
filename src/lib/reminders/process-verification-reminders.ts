@@ -13,9 +13,14 @@ import { sendVerificationRequestEmail } from "@/lib/email/verification";
 // Escalation checkpoints from the product pitch: nudge at 60/30/7 days out,
 // then flip to overdue once the due date passes. reminderCount tracks how
 // many checkpoints have fired so a run that finds nothing new to do is a
-// no-op, not a re-send -- this idempotency is also what makes it safe for
-// two independent schedulers (Trigger.dev and the Vercel Cron backup) to
-// both process the same outstanding requests without double-sending.
+// no-op, not a re-send. That alone is only idempotent *across* runs of a
+// single scheduler -- it does nothing to stop two runs racing on the same
+// row (Trigger.dev's schedule and the Vercel Cron backup overlapping, a
+// manual re-run from either dashboard, a retry). Both branches below claim
+// their row with a compare-and-swap updateMany (matching the value just
+// read) before doing anything externally visible, and skip if the claim
+// misses -- that's what actually makes two independent schedulers safe to
+// run concurrently, not just the reminderCount field existing.
 const CHECKPOINTS: { withinDays: number; reminderNumber: 1 | 2 | 3 }[] = [
   { withinDays: 7, reminderNumber: 3 },
   { withinDays: 30, reminderNumber: 2 },
@@ -41,33 +46,48 @@ export async function processVerificationReminders(log: (message: string) => voi
     );
 
     if (daysUntilDue <= 0) {
-      await prisma.$transaction([
-        prisma.verificationRequest.update({
-          where: { id: request.id },
+      // Claim-then-mutate, atomically: the CAS on status guards against a
+      // concurrent scheduler already having expired this request, and the
+      // vendor update only happens if this run actually won the claim.
+      const didExpire = await prisma.$transaction(async (tx) => {
+        const { count } = await tx.verificationRequest.updateMany({
+          where: { id: request.id, status: request.status },
           data: { status: "EXPIRED" },
-        }),
-        prisma.vendor.update({
+        });
+        if (count === 0) return false;
+
+        await tx.vendor.update({
           where: { id: request.vendorId },
           data: { status: "OVERDUE" },
-        }),
-      ]);
-      markedOverdue++;
+        });
+        return true;
+      });
+
+      if (didExpire) markedOverdue++;
       continue;
     }
 
     const checkpoint = CHECKPOINTS.find((c) => daysUntilDue <= c.withinDays);
     if (!checkpoint || checkpoint.reminderNumber <= request.reminderCount) continue;
 
+    // Claim the checkpoint before sending: if a concurrent run already
+    // advanced reminderCount past what we just read, this is a no-op and we
+    // skip the send. (Tradeoff: if the email send below fails after a
+    // successful claim, the checkpoint is still marked used and won't be
+    // retried until the next one -- preferred over the alternative of
+    // sending first, which reopens the double-send race this exists to
+    // close.)
+    const { count } = await prisma.verificationRequest.updateMany({
+      where: { id: request.id, reminderCount: request.reminderCount },
+      data: { reminderCount: checkpoint.reminderNumber, lastReminderAt: now },
+    });
+    if (count === 0) continue;
+
     await sendVerificationRequestEmail({
       to: request.vendor.contactEmail,
       vendorName: request.vendor.name,
       token: request.token,
       reminderNumber: checkpoint.reminderNumber,
-    });
-
-    await prisma.verificationRequest.update({
-      where: { id: request.id },
-      data: { reminderCount: checkpoint.reminderNumber, lastReminderAt: now },
     });
     remindersSent++;
   }
