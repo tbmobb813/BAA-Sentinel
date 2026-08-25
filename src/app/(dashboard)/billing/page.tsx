@@ -19,6 +19,11 @@ export default async function BillingPage() {
     where: { organizationId: organization.id },
   });
   const stripeConfigured = Boolean(process.env.STRIPE_SECRET_KEY);
+  // Gate on the *subscription*, not the customer id: a canceled org keeps
+  // its Stripe customer forever (the webhook only clears
+  // stripeSubscriptionId on cancellation), so gating on customerId would
+  // permanently block resubscribing via Checkout with no way back in.
+  const hasActiveSubscription = Boolean(organization.stripeSubscriptionId);
 
   return (
     <div className="space-y-8">
@@ -60,7 +65,17 @@ export default async function BillingPage() {
                 </ul>
               </CardContent>
               <CardFooter>
-                {isCurrent ? null : (
+                {isCurrent ? null : hasActiveSubscription ? (
+                  // Changing plans while already subscribed must go through
+                  // the Customer Portal (which swaps the price on the
+                  // existing subscription with correct proration) -- a
+                  // second Checkout Session here would create a second,
+                  // independently-billed subscription instead of an
+                  // upgrade/downgrade.
+                  <p className="text-sm text-muted-foreground">
+                    Switch plans from Manage billing above.
+                  </p>
+                ) : (
                   <CheckoutButton
                     plan={plan.id}
                     disabled={!stripeConfigured || !plan.priceId}
