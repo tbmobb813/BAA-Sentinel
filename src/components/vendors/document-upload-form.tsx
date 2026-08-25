@@ -55,6 +55,7 @@ export function DocumentUploadForm({ vendorId }: { vendorId: string }) {
         <div>
           <Button
             disabled={uploading}
+            nativeButton={false}
             render={<label htmlFor="document-file" className="cursor-pointer" />}
           >
             {uploading ? "Uploading…" : "Upload document"}

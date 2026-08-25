@@ -28,7 +28,7 @@ export default async function DashboardPage() {
     <div className="space-y-8">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-semibold tracking-tight">Overview</h1>
-        <Button render={<Link href="/vendors" />}>Manage vendors</Button>
+        <Button nativeButton={false} render={<Link href="/vendors" />}>Manage vendors</Button>
       </div>
       <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
         {stats.map((stat) => (
