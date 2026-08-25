@@ -1,5 +1,6 @@
 import "server-only";
 
+import * as Sentry from "@sentry/nextjs";
 import { prisma } from "@/lib/prisma";
 import { sendVerificationRequestEmail } from "@/lib/email/verification";
 
@@ -46,60 +47,74 @@ export async function processVerificationReminders(log: (message: string) => voi
 
   let remindersSent = 0;
   let markedOverdue = 0;
+  let errors = 0;
 
   for (const request of outstanding) {
-    const daysUntilDue = Math.ceil(
-      (request.dueDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24),
-    );
+    // Isolate each request: one failure (a Resend hiccup, a transient DB
+    // error) used to throw and abort the whole loop, silently skipping
+    // every request after it in this run. Now it's reported and the sweep
+    // continues -- a bad row shouldn't cost every other vendor their
+    // reminder for the day.
+    try {
+      const daysUntilDue = Math.ceil(
+        (request.dueDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24),
+      );
 
-    if (daysUntilDue <= 0) {
-      // Claim-then-mutate, atomically: the CAS on status guards against a
-      // concurrent scheduler already having expired this request, and the
-      // vendor update only happens if this run actually won the claim.
-      const didExpire = await prisma.$transaction(async (tx) => {
-        const { count } = await tx.verificationRequest.updateMany({
-          where: { id: request.id, status: request.status },
-          data: { status: "EXPIRED" },
-        });
-        if (count === 0) return false;
+      if (daysUntilDue <= 0) {
+        // Claim-then-mutate, atomically: the CAS on status guards against a
+        // concurrent scheduler already having expired this request, and the
+        // vendor update only happens if this run actually won the claim.
+        const didExpire = await prisma.$transaction(async (tx) => {
+          const { count } = await tx.verificationRequest.updateMany({
+            where: { id: request.id, status: request.status },
+            data: { status: "EXPIRED" },
+          });
+          if (count === 0) return false;
 
-        await tx.vendor.update({
-          where: { id: request.vendorId },
-          data: { status: "OVERDUE" },
+          await tx.vendor.update({
+            where: { id: request.vendorId },
+            data: { status: "OVERDUE" },
+          });
+          return true;
         });
-        return true;
+
+        if (didExpire) markedOverdue++;
+        continue;
+      }
+
+      const checkpoint = CHECKPOINTS.find((c) => daysUntilDue <= c.withinDays);
+      if (!checkpoint || checkpoint.reminderNumber <= request.reminderCount) continue;
+
+      // Claim the checkpoint before sending: if a concurrent run already
+      // advanced reminderCount past what we just read, this is a no-op and
+      // we skip the send. (Tradeoff: if the email send below fails after a
+      // successful claim, the checkpoint is still marked used and won't be
+      // retried until the next one -- preferred over the alternative of
+      // sending first, which reopens the double-send race this exists to
+      // close.)
+      const { count } = await prisma.verificationRequest.updateMany({
+        where: { id: request.id, reminderCount: request.reminderCount },
+        data: { reminderCount: checkpoint.reminderNumber, lastReminderAt: now },
       });
+      if (count === 0) continue;
 
-      if (didExpire) markedOverdue++;
-      continue;
+      await sendVerificationRequestEmail({
+        to: request.vendor.contactEmail,
+        vendorName: request.vendor.name,
+        token: request.token,
+        reminderNumber: checkpoint.reminderNumber,
+      });
+      remindersSent++;
+    } catch (error) {
+      errors++;
+      Sentry.captureException(error, { extra: { requestId: request.id } });
     }
-
-    const checkpoint = CHECKPOINTS.find((c) => daysUntilDue <= c.withinDays);
-    if (!checkpoint || checkpoint.reminderNumber <= request.reminderCount) continue;
-
-    // Claim the checkpoint before sending: if a concurrent run already
-    // advanced reminderCount past what we just read, this is a no-op and we
-    // skip the send. (Tradeoff: if the email send below fails after a
-    // successful claim, the checkpoint is still marked used and won't be
-    // retried until the next one -- preferred over the alternative of
-    // sending first, which reopens the double-send race this exists to
-    // close.)
-    const { count } = await prisma.verificationRequest.updateMany({
-      where: { id: request.id, reminderCount: request.reminderCount },
-      data: { reminderCount: checkpoint.reminderNumber, lastReminderAt: now },
-    });
-    if (count === 0) continue;
-
-    await sendVerificationRequestEmail({
-      to: request.vendor.contactEmail,
-      vendorName: request.vendor.name,
-      token: request.token,
-      reminderNumber: checkpoint.reminderNumber,
-    });
-    remindersSent++;
   }
 
-  log(`Sent ${remindersSent} reminder(s), marked ${markedOverdue} vendor(s) overdue`);
+  log(
+    `Sent ${remindersSent} reminder(s), marked ${markedOverdue} vendor(s) overdue, ` +
+      `${errors} error(s)`,
+  );
 
-  return { checked: outstanding.length, remindersSent, markedOverdue };
+  return { checked: outstanding.length, remindersSent, markedOverdue, errors };
 }

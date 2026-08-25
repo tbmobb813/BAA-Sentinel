@@ -1,6 +1,7 @@
 "use server";
 
 import { after } from "next/server";
+import * as Sentry from "@sentry/nextjs";
 import { prisma } from "@/lib/prisma";
 import { scoreVendorRisk } from "@/lib/ai/risk-scoring";
 import { checkRateLimit, getClientIp } from "@/lib/rate-limit";
@@ -73,7 +74,7 @@ export async function submitVerificationResponse(
           });
         }
       } catch (error) {
-        console.error("Risk scoring failed", error);
+        Sentry.captureException(error, { extra: { vendorId: request.vendorId } });
       }
     });
   }

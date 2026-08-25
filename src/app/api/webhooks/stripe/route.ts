@@ -1,4 +1,5 @@
 import type { NextRequest } from "next/server";
+import * as Sentry from "@sentry/nextjs";
 import { stripe } from "@/lib/stripe";
 import { prisma } from "@/lib/prisma";
 import { PRICE_TO_PLAN } from "@/lib/billing/plans";
@@ -24,9 +25,12 @@ async function applyIfCurrentSubscription(
   });
 
   if (count === 0) {
-    console.warn(
-      `[webhooks/stripe] Ignored event for subscription ${subscriptionId} -- ` +
-        `organization ${organizationId} is tracking a different subscription.`,
+    Sentry.captureException(
+      new Error(
+        `Ignored Stripe event for subscription ${subscriptionId} -- ` +
+          `organization ${organizationId} is tracking a different subscription.`,
+      ),
+      { extra: { organizationId, subscriptionId } },
     );
   }
 }
