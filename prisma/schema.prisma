@@ -110,6 +110,22 @@ model VerificationRequest {
 }
 
 // ------------------------------------------------------
+// 4. ABUSE PROTECTION
+// ------------------------------------------------------
+
+// Fixed-window request counter for rate limiting the one fully
+// unauthenticated surface in the app (/verify/[token]). See
+// src/lib/rate-limit.ts. Rows are pruned by the daily reminder cascade
+// rather than a dedicated cleanup job.
+model RateLimitHit {
+  key         String
+  windowStart DateTime
+  count       Int      @default(1)
+
+  @@id([key, windowStart])
+}
+
+// ------------------------------------------------------
 // ENUMS
 // ------------------------------------------------------
 

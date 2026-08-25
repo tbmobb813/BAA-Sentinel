@@ -28,6 +28,15 @@ const CHECKPOINTS: { withinDays: number; reminderNumber: 1 | 2 | 3 }[] = [
 export async function processVerificationReminders(log: (message: string) => void = () => {}) {
   const now = new Date();
 
+  // Piggybacks the rate-limit table's cleanup on this already-daily job
+  // rather than adding a second scheduled task for a one-line prune.
+  const { count: prunedRateLimitHits } = await prisma.rateLimitHit.deleteMany({
+    where: { windowStart: { lt: new Date(now.getTime() - 24 * 60 * 60 * 1000) } },
+  });
+  if (prunedRateLimitHits > 0) {
+    log(`Pruned ${prunedRateLimitHits} expired rate-limit record(s)`);
+  }
+
   const outstanding = await prisma.verificationRequest.findMany({
     where: { status: { in: ["SENT", "OPENED"] } },
     include: { vendor: true },

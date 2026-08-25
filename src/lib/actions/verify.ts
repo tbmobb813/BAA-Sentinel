@@ -3,6 +3,7 @@
 import { after } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { scoreVendorRisk } from "@/lib/ai/risk-scoring";
+import { checkRateLimit, getClientIp } from "@/lib/rate-limit";
 
 export type VerifyActionState = { error?: string; success?: boolean } | undefined;
 
@@ -11,6 +12,12 @@ export async function submitVerificationResponse(
   _prevState: VerifyActionState,
   formData: FormData,
 ): Promise<VerifyActionState> {
+  const ip = await getClientIp();
+  const withinLimit = await checkRateLimit(`verify-submit:${ip}`, 10, 3600);
+  if (!withinLimit) {
+    return { error: "Too many attempts. Please try again later." };
+  }
+
   const summary = formData.get("summary");
 
   if (typeof summary !== "string" || summary.trim().length === 0) {

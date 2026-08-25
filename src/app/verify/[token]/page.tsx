@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { checkRateLimit, getClientIp } from "@/lib/rate-limit";
 import { VerifyResponseForm } from "@/components/vendors/verify-response-form";
 import {
   Card,
@@ -13,12 +14,17 @@ export default async function VerifyPage({
 }: PageProps<"/verify/[token]">) {
   const { token } = await params;
 
-  const request = await prisma.verificationRequest.findUnique({
-    where: { token },
-    include: { vendor: true },
-  });
+  const ip = await getClientIp();
+  const withinLimit = await checkRateLimit(`verify-page:${ip}`, 30, 300);
 
-  if (request && request.status === "SENT") {
+  const request = withinLimit
+    ? await prisma.verificationRequest.findUnique({
+        where: { token },
+        include: { vendor: true },
+      })
+    : null;
+
+  if (withinLimit && request && request.status === "SENT") {
     await prisma.verificationRequest.update({
       where: { token },
       data: { status: "OPENED" },
@@ -40,7 +46,11 @@ export default async function VerifyPage({
           ) : null}
         </CardHeader>
         <CardContent>
-          {!request ? (
+          {!withinLimit ? (
+            <p className="text-sm text-destructive">
+              Too many requests. Please try again in a few minutes.
+            </p>
+          ) : !request ? (
             <p className="text-sm text-destructive">
               This verification link is invalid.
             </p>
