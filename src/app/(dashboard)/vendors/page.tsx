@@ -23,18 +23,10 @@ export default async function VendorsPage() {
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-semibold tracking-tight">Vendors</h1>
         <div className="flex items-center gap-2">
-          <Button
-            variant="outline"
-            nativeButton={false}
-            render={<a href="/api/export/csv" />}
-          >
+          <Button variant="outline" nativeButton={false} render={<a href="/api/export/csv" />}>
             Export CSV
           </Button>
-          <Button
-            variant="outline"
-            nativeButton={false}
-            render={<a href="/api/export/pdf" />}
-          >
+          <Button variant="outline" nativeButton={false} render={<a href="/api/export/pdf" />}>
             Export PDF
           </Button>
           <AddVendorDialog />

@@ -2,6 +2,34 @@ import type { NextRequest } from "next/server";
 import { stripe } from "@/lib/stripe";
 import { prisma } from "@/lib/prisma";
 import { PRICE_TO_PLAN } from "@/lib/billing/plans";
+import type { Prisma } from "@prisma/client";
+
+// Applies a subscription-derived update only if it belongs to the
+// subscription the org currently has on record (or the org has none yet).
+// Without this, a stale/out-of-order event for a subscription that's since
+// been superseded -- e.g. two concurrent subscriptions from a since-fixed
+// UI bug, or events simply arriving out of order -- could clobber newer
+// state instead of being a no-op.
+async function applyIfCurrentSubscription(
+  organizationId: string,
+  subscriptionId: string,
+  data: Prisma.OrganizationUpdateInput,
+) {
+  const { count } = await prisma.organization.updateMany({
+    where: {
+      id: organizationId,
+      OR: [{ stripeSubscriptionId: null }, { stripeSubscriptionId: subscriptionId }],
+    },
+    data,
+  });
+
+  if (count === 0) {
+    console.warn(
+      `[webhooks/stripe] Ignored event for subscription ${subscriptionId} -- ` +
+        `organization ${organizationId} is tracking a different subscription.`,
+    );
+  }
+}
 
 // Keeps Organization.plan/stripeCustomerId/stripeSubscriptionId in sync
 // with Stripe. Requires STRIPE_WEBHOOK_SECRET and a publicly reachable URL
@@ -38,13 +66,10 @@ export async function POST(request: NextRequest) {
         const priceId = subscription.items.data[0]?.price.id;
         const plan = priceId ? PRICE_TO_PLAN[priceId] : undefined;
 
-        await prisma.organization.update({
-          where: { id: organizationId },
-          data: {
-            stripeCustomerId: session.customer as string,
-            stripeSubscriptionId: subscription.id,
-            ...(plan ? { plan } : {}),
-          },
+        await applyIfCurrentSubscription(organizationId, subscription.id, {
+          stripeCustomerId: session.customer as string,
+          stripeSubscriptionId: subscription.id,
+          ...(plan ? { plan } : {}),
         });
       }
       break;
@@ -56,9 +81,9 @@ export async function POST(request: NextRequest) {
       const plan = priceId ? PRICE_TO_PLAN[priceId] : undefined;
 
       if (organizationId && plan) {
-        await prisma.organization.update({
-          where: { id: organizationId },
-          data: { plan, stripeSubscriptionId: subscription.id },
+        await applyIfCurrentSubscription(organizationId, subscription.id, {
+          plan,
+          stripeSubscriptionId: subscription.id,
         });
       }
       break;
@@ -70,9 +95,9 @@ export async function POST(request: NextRequest) {
       if (organizationId) {
         // No "canceled" plan tier exists -- revert to the entry-level paid
         // tier's vendor limit rather than inventing a suspended state.
-        await prisma.organization.update({
-          where: { id: organizationId },
-          data: { plan: "STARTER", stripeSubscriptionId: null },
+        await applyIfCurrentSubscription(organizationId, subscription.id, {
+          plan: "STARTER",
+          stripeSubscriptionId: null,
         });
       }
       break;

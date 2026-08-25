@@ -16,7 +16,7 @@ const HEADERS = [
 ];
 
 function csvCell(value: string): string {
-  return /[",\n]/.test(value) ? `"${value.replace(/"/g, '""')}"` : value;
+  return /[",\n\r]/.test(value) ? `"${value.replace(/"/g, '""')}"` : value;
 }
 
 function csvRow(values: (string | number | null)[]): string {
