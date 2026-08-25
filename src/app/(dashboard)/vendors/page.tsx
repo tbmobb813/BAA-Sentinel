@@ -12,6 +12,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Card, CardContent } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
 
 export default async function VendorsPage() {
   const { organizationId } = await getCurrentOrgContext();
@@ -21,7 +22,15 @@ export default async function VendorsPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-semibold tracking-tight">Vendors</h1>
-        <AddVendorDialog />
+        <div className="flex items-center gap-2">
+          <Button variant="outline" nativeButton={false} render={<a href="/api/export/csv" />}>
+            Export CSV
+          </Button>
+          <Button variant="outline" nativeButton={false} render={<a href="/api/export/pdf" />}>
+            Export PDF
+          </Button>
+          <AddVendorDialog />
+        </div>
       </div>
 
       {vendors.length === 0 ? (
