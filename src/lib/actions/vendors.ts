@@ -3,17 +3,11 @@
 import { randomUUID } from "node:crypto";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { getCurrentOrgContext } from "@/lib/data/org";
 import { sendVerificationRequestEmail } from "@/lib/email/verification";
 import { scoreVendorRisk } from "@/lib/ai/risk-scoring";
-
-const createVendorSchema = z.object({
-  name: z.string().min(1, "Vendor name is required"),
-  contactName: z.string().min(1, "Contact name is required"),
-  contactEmail: z.string().email("Enter a valid contact email"),
-});
+import { createVendorSchema } from "@/lib/validation/vendor";
 
 export type ActionState = { error?: string } | undefined;
 

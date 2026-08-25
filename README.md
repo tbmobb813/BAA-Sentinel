@@ -202,6 +202,34 @@ already configured). They intentionally export different granularity:
   — a presentable one-vendor-per-row summary with status counts up top,
   meant to be handed to someone directly rather than analyzed.
 
+## Testing
+
+`npm test` runs the Vitest suite (`npm run test:watch` for watch mode).
+Coverage is intentionally scoped to what's verifiable without a live
+database:
+
+- **Multi-tenant scoping** (`src/lib/data/vendors.ts`, `src/lib/data/org.ts`)
+  — asserts every query is shaped with an `organizationId` filter, since
+  there's no Postgres RLS backstopping it (see the comment in
+  `vendors.ts`).
+- **Pure logic**: CSV escaping (`src/lib/export/csv-format.ts`), the
+  rate-limit window bucketing (`src/lib/rate-limit.ts`), vendor input
+  validation (`src/lib/validation/vendor.ts`).
+- **The two hardened-after-review pieces**: the Stripe webhook's
+  compare-and-swap guard against stale subscription events
+  (`applyIfCurrentSubscription`), and the reminder cascade's checkpoint
+  logic plus per-request error isolation.
+
+Everywhere else, `@/lib/prisma` (and Clerk, where relevant) is mocked via
+`vi.mock` -- these assert the *shape* of the query Prisma was called with,
+not real query results against real data.
+
+**Not covered, and needs a real database to write with any confidence:**
+integration tests against actual Postgres (e.g. the `RateLimitHit`
+composite key under concurrent upserts, cascade deletes), and E2E tests
+against a running app. `docker compose up -d` gets a local Postgres for
+this if picked up later.
+
 ## What's built vs. what's next
 
 **Built:** Clerk auth + organizations with `proxy.ts` route protection,
@@ -211,8 +239,11 @@ magic-link request, vendor responds on an unauthenticated
 `/verify/[token]` form, which marks the vendor compliant), Stripe
 Checkout + Customer Portal for the three subscription tiers (`/billing`),
 the reminder cascade on Vercel Cron, AI risk scoring (Growth/MSP tiers) on
-vendor verification responses, CSV/PDF audit export, and vendor document
-upload via Vercel Blob.
+vendor verification responses, CSV/PDF audit export, vendor document
+upload via Vercel Blob, rate limiting on the public verify flow, Sentry
+error monitoring, and a Vitest unit-test suite.
 
 **Not yet wired:** nothing outstanding from the original feature list.
-Worth keeping an eye on: this project has no automated test suite yet.
+Worth keeping an eye on: no CI workflow runs the test suite/build/lint
+automatically yet, and no integration or E2E tests exist (see "Testing"
+above).

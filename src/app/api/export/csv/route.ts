@@ -1,6 +1,7 @@
 import { getCurrentOrgContext } from "@/lib/data/org";
 import { getVendorsForExport } from "@/lib/data/vendors";
 import { exportFilename } from "@/lib/export/filename";
+import { csvRow } from "@/lib/export/csv-format";
 
 const HEADERS = [
   "Vendor",
@@ -14,14 +15,6 @@ const HEADERS = [
   "Completed At",
   "Response Summary",
 ];
-
-function csvCell(value: string): string {
-  return /[",\n\r]/.test(value) ? `"${value.replace(/"/g, '""')}"` : value;
-}
-
-function csvRow(values: (string | number | null)[]): string {
-  return values.map((v) => csvCell(v === null ? "" : String(v))).join(",");
-}
 
 export async function GET() {
   const { organizationId, organization } = await getCurrentOrgContext();

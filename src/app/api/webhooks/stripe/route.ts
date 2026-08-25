@@ -11,7 +11,7 @@ import type { Prisma } from "@prisma/client";
 // been superseded -- e.g. two concurrent subscriptions from a since-fixed
 // UI bug, or events simply arriving out of order -- could clobber newer
 // state instead of being a no-op.
-async function applyIfCurrentSubscription(
+export async function applyIfCurrentSubscription(
   organizationId: string,
   subscriptionId: string,
   data: Prisma.OrganizationUpdateInput,
