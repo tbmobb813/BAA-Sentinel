@@ -1,14 +1,10 @@
 import type { NextRequest } from "next/server";
 import { processVerificationReminders } from "@/lib/reminders/process-verification-reminders";
 
-// Backup for src/trigger/reminders.ts (the primary path). Scheduled a few
-// hours after Trigger.dev's run (see vercel.json) so it acts as a genuine
-// "catch what didn't run" pass rather than a simultaneous duplicate --
-// processVerificationReminders is checkpoint-based and idempotent either
-// way, but the offset keeps normal operation from doing the work twice.
-// Vercel does not retry failed cron invocations, so this only helps if the
-// scheduler itself fires; that's an accepted limitation of a backup that
-// deliberately avoids depending on Trigger.dev's own infrastructure.
+// Daily reminder-cascade sweep, scheduled via vercel.json. Vercel does not
+// retry failed cron invocations, so a failure here is silent until the
+// next day's run -- acceptable for day-granularity due-date checkpoints,
+// but worth knowing if this ever needs stronger delivery guarantees.
 export const maxDuration = 300;
 
 export async function GET(request: NextRequest) {

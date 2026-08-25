@@ -25,10 +25,8 @@ audit-ready record.
 - **Anthropic (Claude API)** — AI risk scoring on Growth/MSP tiers, via
   `messages.parse()` + `zodOutputFormat()` for structured `{score, rationale}`
   output (Haiku 4.5)
-- **Trigger.dev** — primary reminder-cascade scheduler, with **Vercel Cron**
-  wired as a backup trigger for the same job (see "Reminder cascade setup"
-  below) — chosen after `npm audit` turned up unresolved vulnerabilities
-  confined to Trigger.dev's own dependency tree
+- **Vercel Cron** — daily reminder-cascade sweep (see "Reminder cascade
+  setup" below)
 - **Vercel Blob** — vendor document upload, via direct browser-to-Blob
   uploads (`@vercel/blob/client`'s `upload()`), no new account beyond the
   Vercel account already required for hosting
@@ -122,43 +120,29 @@ vendors and start verification cycles from `/vendors`.
    completes — the checkout session itself will still succeed, but the
    app won't know about it.
 
-### Reminder cascade setup (Trigger.dev)
+### Reminder cascade setup (Vercel Cron)
 
-The scheduled task lives in `src/trigger/reminders.ts` — it runs daily,
-nudges vendors at 60/30/7 days before their verification is due (reusing
-the same Resend email path, so it also no-ops to a console log without
-`RESEND_API_KEY`), and flips a vendor to `OVERDUE` once its due date
-passes.
+`src/app/api/cron/reminders/route.ts` runs `processVerificationReminders`
+(`src/lib/reminders/process-verification-reminders.ts`) on the schedule
+defined in `vercel.json` — daily, nudging vendors at 60/30/7 days before
+their verification is due (reusing the same Resend email path, so it also
+no-ops to a console log without `RESEND_API_KEY`), and flipping a vendor to
+`OVERDUE` once its due date passes. Each checkpoint write is a
+compare-and-swap against `reminderCount`, so an overlapping invocation (a
+manual re-run from the Vercel dashboard, a retry) can't double-send.
 
-1. Create a free account at [trigger.dev](https://trigger.dev) and a new
-   project; copy its project ref into `TRIGGER_PROJECT_REF` (or hardcode it
-   directly in `trigger.config.ts`'s `project` field — it's not a secret).
-2. Set `TRIGGER_SECRET_KEY` from the project's dashboard.
-3. **This task runs on Trigger.dev's infrastructure, not Vercel** — it
-   needs its own copy of `DATABASE_URL`, `RESEND_API_KEY`, and
-   `NEXT_PUBLIC_APP_URL` configured in the Trigger.dev dashboard's
-   environment variables (or synced via the CLI), separately from
-   whatever you set in `.env.local`/Vercel.
-4. `npx trigger.dev dev` — runs the task locally against your dev
-   environment and lets you invoke it on demand from the Trigger.dev
-   dashboard instead of waiting for the daily cron to fire.
-5. `npx trigger.dev deploy` when ready for the schedule to run for real.
+Only relevant once deployed to Vercel: set `CRON_SECRET` to any random
+16+ character string as an environment variable in the Vercel project
+(Vercel then sends it back automatically as `Authorization: Bearer
+$CRON_SECRET` on every cron invocation, which the route verifies). There's
+nothing to configure for local dev — Vercel Cron doesn't run against `next
+dev`; trigger a run manually with `curl -H "Authorization: Bearer
+$CRON_SECRET" localhost:3000/api/cron/reminders` instead.
 
-**Backup trigger (Vercel Cron):** `src/app/api/cron/reminders/route.ts`
-runs the exact same `processVerificationReminders` logic (shared with the
-Trigger.dev task via `src/lib/reminders/process-verification-reminders.ts`)
-on a schedule defined in `vercel.json`, deliberately set a few hours after
-Trigger.dev's run so it acts as a "catch what didn't fire" pass rather than
-a simultaneous duplicate. This exists because `npm audit` turned up
-unresolved high/critical vulnerabilities confined to Trigger.dev's own
-dependency tree with no fix available yet (see git history) — this backup
-means a Trigger.dev outage or an eventual decision to drop it doesn't leave
-the reminder cascade with no path at all. Only relevant once deployed to
-Vercel: set `CRON_SECRET` to any random 16+ character string as an
-environment variable in the Vercel project (Vercel then sends it back
-automatically as `Authorization: Bearer $CRON_SECRET` on every cron
-invocation, which the route verifies). There's nothing to configure for
-local dev — Vercel Cron doesn't run against `next dev`.
+Vercel does not retry a failed cron invocation, so a failure here is
+silent until the next day's run — an accepted tradeoff at day-granularity
+due-date checkpoints; revisit if this ever needs stronger delivery
+guarantees than a bare cron endpoint provides.
 
 ### Vendor document upload setup
 
@@ -226,11 +210,9 @@ plan-based vendor-count limits, the annual verification cycle (send a
 magic-link request, vendor responds on an unauthenticated
 `/verify/[token]` form, which marks the vendor compliant), Stripe
 Checkout + Customer Portal for the three subscription tiers (`/billing`),
-the reminder cascade on Trigger.dev with a Vercel Cron backup, AI risk
-scoring (Growth/MSP tiers) on vendor verification responses, CSV/PDF audit
-export, and vendor document upload via Vercel Blob.
+the reminder cascade on Vercel Cron, AI risk scoring (Growth/MSP tiers) on
+vendor verification responses, CSV/PDF audit export, and vendor document
+upload via Vercel Blob.
 
 **Not yet wired:** nothing outstanding from the original feature list.
-Worth keeping an eye on: `npm audit`'s unresolved high/critical findings in
-Trigger.dev's dependency tree (the Vercel Cron backup exists partly because
-of this), and this project has no automated test suite yet.
+Worth keeping an eye on: this project has no automated test suite yet.

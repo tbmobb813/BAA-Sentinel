@@ -16,7 +16,6 @@
     "@prisma/adapter-pg": "^7.9.1",
     "@prisma/client": "^7.9.1",
     "@react-pdf/renderer": "^4.8.1",
-    "@trigger.dev/sdk": "^4.5.9",
     "@vercel/blob": "^2.6.1",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
@@ -42,7 +41,6 @@
     "eslint-config-next": "16.3.0",
     "shadcn": "^4.16.1",
     "tailwindcss": "^4",
-    "trigger.dev": "^4.5.9",
     "typescript": "^5"
   }
 }

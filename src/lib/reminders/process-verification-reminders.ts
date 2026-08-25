@@ -3,24 +3,22 @@ import "server-only";
 import { prisma } from "@/lib/prisma";
 import { sendVerificationRequestEmail } from "@/lib/email/verification";
 
-// Shared by src/trigger/reminders.ts (primary, via Trigger.dev's scheduler)
-// and src/app/api/cron/reminders/route.ts (backup, via Vercel Cron) so both
-// triggers run identical logic rather than two copies that could drift.
-// Takes a plain logger callback instead of importing @trigger.dev/sdk's
-// logger directly, so the Vercel Cron path doesn't need to pull in the
-// whole Trigger.dev SDK just to log.
+// Invoked by src/app/api/cron/reminders/route.ts (Vercel Cron). Kept as a
+// standalone function rather than inlined in the route handler so the
+// route stays a thin auth-and-dispatch wrapper. Takes a plain logger
+// callback rather than a hard dependency on any particular logging setup.
 
 // Escalation checkpoints from the product pitch: nudge at 60/30/7 days out,
 // then flip to overdue once the due date passes. reminderCount tracks how
 // many checkpoints have fired so a run that finds nothing new to do is a
-// no-op, not a re-send. That alone is only idempotent *across* runs of a
-// single scheduler -- it does nothing to stop two runs racing on the same
-// row (Trigger.dev's schedule and the Vercel Cron backup overlapping, a
-// manual re-run from either dashboard, a retry). Both branches below claim
-// their row with a compare-and-swap updateMany (matching the value just
-// read) before doing anything externally visible, and skip if the claim
-// misses -- that's what actually makes two independent schedulers safe to
-// run concurrently, not just the reminderCount field existing.
+// no-op, not a re-send. That alone is only idempotent *across* separate
+// runs -- it does nothing to stop two overlapping invocations (a manual
+// re-run from the Vercel dashboard racing the scheduled one, a retry)
+// from both reading the same reminderCount and both sending. Both
+// branches below claim their row with a compare-and-swap updateMany
+// (matching the value just read) before doing anything externally
+// visible, and skip if the claim misses -- that's what actually makes a
+// concurrent invocation safe, not just the reminderCount field existing.
 const CHECKPOINTS: { withinDays: number; reminderNumber: 1 | 2 | 3 }[] = [
   { withinDays: 7, reminderNumber: 3 },
   { withinDays: 30, reminderNumber: 2 },
