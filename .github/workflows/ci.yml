@@ -44,8 +44,6 @@ jobs:
 
       - run: npm run lint
 
-      - run: npx tsc --noEmit
-
       - run: npm test
 
       # Applies every committed migration against a real, empty Postgres --
@@ -56,6 +54,12 @@ jobs:
         env:
           DATABASE_URL: postgresql://user:password@localhost:5432/baa_sentinel
 
+      # No separate `tsc --noEmit` step: PageProps/LayoutProps are ambient
+      # types Next generates into .next/types during this build, so a
+      # standalone typecheck before this step fails on a fresh checkout
+      # with no .next directory yet. next build already runs its own full
+      # TypeScript check (see its "Running TypeScript" phase) and fails on
+      # type errors, so a separate step would be redundant even if reordered.
       - run: npm run build
         env:
           DATABASE_URL: postgresql://user:password@localhost:5432/baa_sentinel
