@@ -2,7 +2,11 @@ import { notFound } from "next/navigation";
 import { getCurrentOrgContext } from "@/lib/data/org";
 import { getVendorDetail } from "@/lib/data/vendors";
 import { VendorStatusBadge } from "@/components/vendors/status-badge";
-import { StartVerificationButton } from "@/components/vendors/verification-actions";
+import {
+  StartVerificationButton,
+  RescoreButton,
+} from "@/components/vendors/verification-actions";
+import { DocumentUploadForm } from "@/components/vendors/document-upload-form";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 
@@ -17,13 +21,14 @@ export default async function VendorDetailPage({
   params,
 }: PageProps<"/vendors/[vendorId]">) {
   const { vendorId } = await params;
-  const { organizationId } = await getCurrentOrgContext();
+  const { organizationId, organization } = await getCurrentOrgContext();
   const vendor = await getVendorDetail(vendorId, organizationId);
 
   if (!vendor) notFound();
 
   const latestRequest = vendor.requests[0];
   const canStartNewRequest = !latestRequest || latestRequest.status === "COMPLETED";
+  const riskScoringAvailable = organization.plan !== "STARTER";
 
   return (
     <div className="max-w-2xl space-y-6">
@@ -38,6 +43,33 @@ export default async function VendorDetailPage({
       </div>
 
       <Separator />
+
+      {riskScoringAvailable ? (
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between">
+            <CardTitle>AI risk score</CardTitle>
+            <RescoreButton vendorId={vendor.id} />
+          </CardHeader>
+          <CardContent>
+            {vendor.riskScore === null ? (
+              <p className="text-sm text-muted-foreground">
+                Not scored yet — runs automatically the next time this vendor
+                completes a verification, or run it manually above once
+                there&rsquo;s at least one completed response.
+              </p>
+            ) : (
+              <div className="space-y-1">
+                <p className="text-3xl font-semibold">{vendor.riskScore}
+                  <span className="text-base font-normal text-muted-foreground"> / 100</span>
+                </p>
+                {vendor.riskRationale ? (
+                  <p className="text-sm text-muted-foreground">{vendor.riskRationale}</p>
+                ) : null}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      ) : null}
 
       <Card>
         <CardHeader className="flex flex-row items-center justify-between">
@@ -68,6 +100,47 @@ export default async function VendorDetailPage({
                 </div>
               </div>
             ))
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Documents</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <DocumentUploadForm vendorId={vendor.id} />
+          {vendor.baaRecords.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No documents uploaded yet.</p>
+          ) : (
+            <div className="space-y-2">
+              {vendor.baaRecords.map((record) => (
+                <div
+                  key={record.id}
+                  className="flex items-center justify-between rounded-md border p-3 text-sm"
+                >
+                  <div>
+                    <p className="font-medium">{record.label}</p>
+                    <p className="text-muted-foreground">
+                      {record.signedDate
+                        ? `Signed ${record.signedDate.toLocaleDateString()} · `
+                        : ""}
+                      Uploaded {record.createdAt.toLocaleDateString()}
+                    </p>
+                  </div>
+                  {record.fileUrl ? (
+                    <a
+                      href={record.fileUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-primary underline underline-offset-4"
+                    >
+                      Download
+                    </a>
+                  ) : null}
+                </div>
+              ))}
+            </div>
           )}
         </CardContent>
       </Card>

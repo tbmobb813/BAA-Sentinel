@@ -22,16 +22,22 @@ audit-ready record.
 - **Resend** — transactional email for verification requests/reminders
 - **Stripe** — subscription billing (Checkout + Customer Portal wired for
   the three tiers)
-- **Anthropic (Claude API)** — AI risk scoring on paid tiers (installed, not
-  yet wired)
+- **Anthropic (Claude API)** — AI risk scoring on Growth/MSP tiers, via
+  `messages.parse()` + `zodOutputFormat()` for structured `{score, rationale}`
+  output (Haiku 4.5)
+- **Vercel Cron** — daily reminder-cascade sweep (see "Reminder cascade
+  setup" below)
+- **Vercel Blob** — vendor document upload, via direct browser-to-Blob
+  uploads (`@vercel/blob/client`'s `upload()`), no new account beyond the
+  Vercel account already required for hosting
 
 ## Data model
 
 Schema lives in `prisma/schema.prisma` (originally committed as
 `client.sql` — same content, relocated to the conventional Prisma path,
 plus a few additive fields: `Organization.plan`/Stripe IDs,
-`Vendor.riskScore`/`riskRationale`, and due-date/reminder tracking on
-`VerificationRequest`).
+`Vendor.riskScore`/`riskRationale`, due-date/reminder tracking on
+`VerificationRequest`, and `BaaRecord.label`).
 
 ```
 Organization (mirrors a Clerk Organization; id = Clerk org ID)
@@ -114,22 +120,99 @@ vendors and start verification cycles from `/vendors`.
    completes — the checkout session itself will still succeed, but the
    app won't know about it.
 
+### Reminder cascade setup (Vercel Cron)
+
+`src/app/api/cron/reminders/route.ts` runs `processVerificationReminders`
+(`src/lib/reminders/process-verification-reminders.ts`) on the schedule
+defined in `vercel.json` — daily, nudging vendors at 60/30/7 days before
+their verification is due (reusing the same Resend email path, so it also
+no-ops to a console log without `RESEND_API_KEY`), and flipping a vendor to
+`OVERDUE` once its due date passes. Each checkpoint write is a
+compare-and-swap against `reminderCount`, so an overlapping invocation (a
+manual re-run from the Vercel dashboard, a retry) can't double-send.
+
+Only relevant once deployed to Vercel: set `CRON_SECRET` to any random
+16+ character string as an environment variable in the Vercel project
+(Vercel then sends it back automatically as `Authorization: Bearer
+$CRON_SECRET` on every cron invocation, which the route verifies). There's
+nothing to configure for local dev — Vercel Cron doesn't run against `next
+dev`; trigger a run manually with `curl -H "Authorization: Bearer
+$CRON_SECRET" localhost:3000/api/cron/reminders` instead.
+
+Vercel does not retry a failed cron invocation, so a failure here is
+silent until the next day's run — an accepted tradeoff at day-granularity
+due-date checkpoints; revisit if this ever needs stronger delivery
+guarantees than a bare cron endpoint provides.
+
+### Vendor document upload setup
+
+Uploads go straight from the browser to Vercel Blob
+(`@vercel/blob/client`'s `upload()`, authorized by
+`src/app/api/blob/upload/route.ts`), then the client calls the
+`createBaaRecord` Server Action directly once the upload resolves — no
+dependency on Vercel's `onUploadCompleted` webhook callback, which (like
+the Clerk webhook) needs a publicly reachable URL that most dev
+environments don't have.
+
+1. In the Vercel dashboard, connect a Blob store to the project (**Storage**
+   tab -> **Create Database** -> **Blob**). This auto-populates
+   `BLOB_READ_WRITE_TOKEN` for deployed environments; copy the same value
+   into `.env.local` for local dev.
+2. That's it — no other setup. Uploads are capped at 20MB and restricted to
+   PDF/PNG/JPEG in `src/app/api/blob/upload/route.ts`'s
+   `allowedContentTypes`.
+
+**Security note:** blobs are uploaded with `access: "public"` — the file is
+reachable by anyone with its exact URL, which Vercel Blob generates with a
+random, unguessable suffix. This is the same trust model already used for
+`/verify/[token]`'s magic links elsewhere in this app: the confidentiality
+boundary that matters (who ever *sees* the link) is enforced by
+`getVendorDetail`'s `organizationId` scoping, not by Vercel Blob itself.
+Vercel Blob does support fully access-controlled private blobs via a
+signed-URL flow (`presignUrl`), which this app doesn't use — consciously
+traded off for consistency with the app's existing token-based pattern and
+to avoid a second, more complex upload flow for what's currently a small
+feature.
+
+### AI risk scoring setup
+
+Set `ANTHROPIC_API_KEY` from the [Anthropic Console](https://console.anthropic.com).
+Without it, scoring silently no-ops (`scoreVendorRisk` returns `null`) rather
+than failing whatever triggered it. Scoring runs two ways, both gated to
+Growth/MSP plans (`Organization.plan !== "STARTER"`):
+
+- **Automatically** at the end of `submitVerificationResponse`, right after
+  a vendor's `/verify/[token]` submission marks them compliant. Best-effort —
+  a Claude API failure is logged, not surfaced to the vendor, since their
+  submission already succeeded.
+- **Manually** via the "Run risk scoring" button on a vendor's detail page,
+  which re-scores off that vendor's most recent completed response.
+
+### Audit export
+
+"Export CSV" / "Export PDF" on `/vendors` hit `/api/export/csv` and
+`/api/export/pdf` (plain GET route handlers, no setup required beyond what's
+already configured). They intentionally export different granularity:
+
+- **CSV** — one row per verification cycle (not per vendor), so the full
+  multi-year history is there for an auditor to dig into. A vendor with no
+  cycles yet still gets a row rather than silently disappearing.
+- **PDF** (`src/components/export/audit-report-pdf.tsx`, via
+  `@react-pdf/renderer`'s `renderToBuffer` — pure JS, no headless browser)
+  — a presentable one-vendor-per-row summary with status counts up top,
+  meant to be handed to someone directly rather than analyzed.
+
 ## What's built vs. what's next
 
 **Built:** Clerk auth + organizations with `proxy.ts` route protection,
 Clerk-to-Postgres sync (webhook + lazy-sync fallback), vendor CRUD with
 plan-based vendor-count limits, the annual verification cycle (send a
 magic-link request, vendor responds on an unauthenticated
-`/verify/[token]` form, which marks the vendor compliant), and Stripe
-Checkout + Customer Portal for the three subscription tiers (`/billing`).
+`/verify/[token]` form, which marks the vendor compliant), Stripe
+Checkout + Customer Portal for the three subscription tiers (`/billing`),
+the reminder cascade on Vercel Cron, AI risk scoring (Growth/MSP tiers) on
+vendor verification responses, CSV/PDF audit export, and vendor document
+upload via Vercel Blob.
 
-**Not yet wired** (installed, scaffolded in `.env.example`, no UI/logic
-yet):
-
-- Scheduled reminder cascade (60/30/7-day escalation) — needs Inngest or
-  Trigger.dev; `VerificationRequest.reminderCount`/`lastReminderAt`
-  already exist to support it
-- AI risk scoring (Claude API) on uploaded vendor documentation
-- Audit-ready PDF/CSV export
-- Vendor document upload (Supabase Storage, or any object storage —
-  `BaaRecord.fileUrl` already exists to point at it; no upload UI yet)
+**Not yet wired:** nothing outstanding from the original feature list.
+Worth keeping an eye on: this project has no automated test suite yet.

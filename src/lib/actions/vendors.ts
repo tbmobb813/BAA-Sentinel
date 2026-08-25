@@ -7,6 +7,7 @@ import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { getCurrentOrgContext } from "@/lib/data/org";
 import { sendVerificationRequestEmail } from "@/lib/email/verification";
+import { scoreVendorRisk } from "@/lib/ai/risk-scoring";
 
 const createVendorSchema = z.object({
   name: z.string().min(1, "Vendor name is required"),
@@ -82,6 +83,44 @@ export async function startVerificationCycle(vendorId: string) {
   await prisma.vendor.update({
     where: { id: vendorId },
     data: { status: "PENDING" },
+  });
+
+  revalidatePath(`/vendors/${vendorId}`);
+}
+
+export async function rescoreVendorRisk(vendorId: string) {
+  const { organizationId, organization } = await getCurrentOrgContext();
+
+  if (organization.plan === "STARTER") {
+    throw new Error("AI risk scoring is a Growth/MSP plan feature");
+  }
+
+  const vendor = await prisma.vendor.findFirst({
+    where: { id: vendorId, organizationId },
+  });
+  if (!vendor) throw new Error("Vendor not found");
+
+  const latestCompleted = await prisma.verificationRequest.findFirst({
+    where: { vendorId, status: "COMPLETED", responseSummary: { not: null } },
+    orderBy: { completedAt: "desc" },
+  });
+
+  if (!latestCompleted?.responseSummary) {
+    throw new Error("No completed verification response to score yet");
+  }
+
+  const assessment = await scoreVendorRisk({
+    vendorName: vendor.name,
+    responseSummary: latestCompleted.responseSummary,
+  });
+
+  if (!assessment) {
+    throw new Error("Risk scoring is not configured (ANTHROPIC_API_KEY unset)");
+  }
+
+  await prisma.vendor.update({
+    where: { id: vendorId },
+    data: { riskScore: assessment.score, riskRationale: assessment.rationale },
   });
 
   revalidatePath(`/vendors/${vendorId}`);
